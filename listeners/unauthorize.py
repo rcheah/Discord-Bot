@@ -12,6 +12,5 @@ class Unauthorized(commands.Cog):
             if ctx.command.cog_name == "moderator":
                 await ctx.respond("You don't have permission to use this moderator command.", ephemeral=True)
 
-# Async setup
-async def setup(bot):
-    await bot.add_cog(Unauthorized(bot))
+def setup(bot):
+    bot.add_cog(Unauthorized(bot))

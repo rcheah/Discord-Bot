@@ -6,11 +6,11 @@ class ModReset(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.slash_command(name = "reset", description = "Reset scrim list")
+    @commands.slash_command(name = "reset", description = "Setzt die Scrim-Liste zurück")
     @commands.has_permissions(administrator = True)
     async def reset(self, ctx: discord.ApplicationContext):
         db.reset()
-        await ctx.respond("Scrim list has been resetted.", ephemeral = True)
+        await ctx.respond("Scrim Liste wurde zurückgesetzt!", ephemeral = True)
 
 def setup(bot):
     bot.add_cog(ModReset(bot))

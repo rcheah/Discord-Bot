@@ -31,7 +31,7 @@ class JoinView(View):
         self.role_select.update_options()
 
         embed = discord.Embed(
-            title = "Scrim Sign Up",
+            title = "Scrim Anmeldung",
             description = "Please select your options below. Then click Submit when ready.",
             color = discord.Color.blurple(),
         )
@@ -52,7 +52,7 @@ class JoinView(View):
             self.view_ref = view
             options = [discord.SelectOption(label = label) for label in ["🔴 Ruby", "🔵 Sapphire", "🟢 Emerald", "🟠 Mixed", "🟣 MK8D"]]
             super().__init__(
-                placeholder = "Select your teams",
+                placeholder = "Wähle deine Teams",
                 min_values = 1,
                 max_values = 5,
                 options = options,
@@ -72,7 +72,7 @@ class JoinView(View):
             self.view_ref = view
             options = [discord.SelectOption(label = str(h)) for h in reversed(range(24))]
             super().__init__(
-                placeholder = "Select available hours (0–23)",
+                placeholder = "Wähle verfügbare Stunden (0–23)",
                 min_values = 1,
                 max_values = 24,
                 options = options,
@@ -95,7 +95,7 @@ class JoinView(View):
                 discord.SelectOption(label = "Sub"),
             ]
             super().__init__(
-                placeholder = "Select your role",
+                placeholder = "Wähle deine Rolle",
                 min_values = 1,
                 max_values = 1,
                 options = options,
@@ -113,7 +113,7 @@ class JoinView(View):
     class SubmitButton(Button):
         def __init__(self, view: View):
             super().__init__(
-                label = "✅ Submit",
+                label = "✅ Fertig",
                 style = discord.ButtonStyle.success,
                 custom_id = "submit_button",
                 disabled = True,
@@ -132,25 +132,25 @@ class JoinView(View):
                         skipped.add(int(hour))
 
             embed = discord.Embed(
-                title = "Signup Summary",
+                title = "Anmeldung Zusammenfassung",
                 color = discord.Color.green(),
             )
             if success:
                 sorted_hours = sorted(success)
                 embed.add_field(
-                    name="✅ Signup Successful",
+                    name="✅ Anmeldung erfolgreich",
                     value=(
-                        f"You successfully signed up as **{self.view_ref.selected_role}** "
-                        f"for the following teams: **{', '.join(self.view_ref.selected_teams)}**\n\n" +
-                        "\n".join(f"{hour}:00" for hour in sorted_hours)
+                        f"Erfolgreich angemeldet als **{self.view_ref.selected_role}** "
+                        f"für folgende Teams: **{', '.join(self.view_ref.selected_teams)}**\n\n" +
+                        "\n".join(f"{hour} Uhr" for hour in sorted_hours)
                     ),
                     inline=False,
                 )
             if skipped:
                 embed.add_field(
-                    name="⚠️ Already Signed Up",
+                    name="schon angemeldet",
                     value=(
-                        "You are already signed up for a scrim at these times:\n" +
+                        "Du bist schon für diese Uhrzeit angemeldet:\n" +
                         "\n".join(f"{hour}:00" for hour in sorted(skipped))
                     ),
                     inline=False,
@@ -165,8 +165,8 @@ class Join(commands.Cog):
     async def join(self, ctx: discord.ApplicationContext):
         view = JoinView()
         embed = discord.Embed(
-            title = "Scrim Signup",
-            description = "Please select your options below. Then click Submit when ready.",
+            title = "Scrim Anmeldung",
+            description = "Bitte wähle deine Teams und Zeiten aus und klicke fertig!",
             color = discord.Color.blurple(),
         )
         await ctx.respond(embed = embed, view = view, ephemeral = True)

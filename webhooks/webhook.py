@@ -33,9 +33,10 @@ async def format_signups():
     cur = conn.cursor()
 
     timestamp = int(datetime.now().timestamp())
+    now_hour = datetime.now().hour
     team_order = ["🔴 Ruby", "🔵 Sapphire", "🟢 Emerald", "🟠 Mixed", "🟣 MK8D"]
 
-    content_blocks = ["**📝 Scrim Übersicht**"]
+    content_blocks = ["**Scrim Zusagen**"]
 
     # --- Offene Signups ---
     cur.execute("SELECT hour, team, role, user_ids FROM signups")
@@ -46,6 +47,9 @@ async def format_signups():
     else:
         grouped = {}
         for row in rows:
+            # Nur Stunden in der Zukunft berücksichtigen
+            if int(row["hour"]) < now_hour:
+                continue
             key = (row["hour"], row["team"])
             if key not in grouped:
                 grouped[key] = {"main": [], "sub": []}
@@ -53,7 +57,7 @@ async def format_signups():
 
         sorted_keys = sorted(
             grouped.keys(),
-            key=lambda x: (x[0], team_order.index(x[1]) if x[1] in team_order else 999)
+            key=lambda x: (int(x[0]), team_order.index(x[1]) if x[1] in team_order else 999)
         )
 
         current_hour = None
@@ -72,11 +76,11 @@ async def format_signups():
             count = len(main_ids) + len(sub_ids)
             content_blocks.append(f"**{team}** ({count}): {main_list} | Sub: {sub_list}")
 
-    # --- Trennung zwischen Signups und finalisierten LUs ---
-    content_blocks.append("\n---\n**✅ Line Ups:**\n")
+    # --- Fett und ohne Trennlinie für finalisierte LUs ---
+    content_blocks.append("")  # Leerzeile über Line Ups
+    content_blocks.append("**✅ Line-Ups:**")  # direkt darunter starten
 
     # --- Finalisierte LUs ---
-    today = datetime.now().strftime("%d.%m.%Y")
     cur.execute("""
         SELECT m.id, m.created_at, m.hour, m.host, m.opponent, m.open, s.team, s.user_id
         FROM scrim_meta m
@@ -107,12 +111,27 @@ async def format_signups():
         if datetime.strptime(data["created_at"], "%d.%m.%Y") < datetime.now().replace(hour=0, minute=0, second=0, microsecond=0):
             continue
 
-        # alphabetisch sortieren
-        users_sorted = sorted(data["users"], key=lambda uid: str(uid))
-        # --- Änderung: nur Leerzeichen zwischen Namen ---
-        users_line = " ".join(f"<@{uid}>" for uid in users_sorted)
+        # Spieler alphabetisch sortieren anhand scrim_scores.name
+        conn2 = sqlite3.connect(DB_PATH)
+        cur2 = conn2.cursor()
+        users_sorted = []
+        for uid in data["users"]:
+            cur2.execute("SELECT name FROM scrim_scores WHERE user_id=?", (str(uid),))
+            row = cur2.fetchone()
+            if row:
+                users_sorted.append((row[0], uid))
+            else:
+                users_sorted.append((str(uid), uid))
+        conn2.close()
+
+        users_sorted.sort(key=lambda x: x[0].lower())
+        users_line = " ".join(f"<@{uid}>" for name, uid in users_sorted)
         opponent_text = f" vs. {data['opponent']}" if data["opponent"] else ""
-        content_blocks.append(f"Scrim#{sid} {data['team']}{opponent_text} am {data['created_at']} um {data['hour']} Uhr\nLU: {users_line}\nHost: {data['host']}& Open: {data['open']}\n")
+        
+        content_blocks.append(
+            f"**Scrim#{sid} {data['team']}{opponent_text} am {data['created_at']} um {data['hour']} Uhr**\n"
+            f"LU: {users_line}\nHost: {data['host']} | Open: {data['open']}\n"
+        )
 
     conn.close()
     content_blocks.append(f"Letzte Aktualisierung: <t:{timestamp}:R>")

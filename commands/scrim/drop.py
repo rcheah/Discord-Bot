@@ -5,86 +5,120 @@ import json
 
 DB_PATH = "data/scrims.db"
 
-def get_user_signups(user_id: str):
-    """Gibt alle (team, hour) zurück, bei denen der User angemeldet ist."""
+# --- Hilfsfunktion: Signups laden ---
+def fetch_signups():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-
-    cur.execute("SELECT team, hour, role, user_ids FROM signups")
+    cur.execute("SELECT hour, team, role, user_ids FROM signups")
     rows = cur.fetchall()
     conn.close()
 
-    user_signups = []
+    grouped = {}
     for row in rows:
-        raw = str(row["user_ids"]).strip()
-        if raw.startswith("["):
+        key = (row["hour"], row["team"])
+        if key not in grouped:
+            grouped[key] = []
+
+        try:
+            user_list = json.loads(row["user_ids"])
+        except json.JSONDecodeError:
+            user_list = [u.strip() for u in str(row["user_ids"]).split(",") if u.strip()]
+
+        for uid in user_list:
+            grouped[key].append(uid)
+    return grouped
+
+# --- UI Elemente ---
+class UserSelect(discord.ui.Select):
+    def __init__(self, guild, hour, team, users):
+        options = []
+        for uid in users:
             try:
-                user_list = json.loads(raw)
+                member = guild.get_member(int(uid))
+                name = member.display_name if member else f"Unknown({uid})"
+            except ValueError:
+                name = f"Unknown({uid})"
+            options.append(discord.SelectOption(label=name, value=uid))
+        super().__init__(placeholder="Wähle einen Spieler aus um ihn aus einem Scrim zu entfernen", options=options)
+        self.hour = hour
+        self.team = team
+
+    async def callback(self, interaction: discord.Interaction):
+        uid = self.values[0]
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        # User aus Signups entfernen
+        cur.execute(
+            "SELECT user_ids FROM signups WHERE hour=? AND team=?",
+            (self.hour, self.team)
+        )
+        row = cur.fetchone()
+        if row:
+            try:
+                user_list = json.loads(row[0])
             except json.JSONDecodeError:
-                user_list = []
-        else:
-            user_list = [x.strip() for x in raw.split(",") if x.strip()]
+                user_list = [x.strip() for x in str(row[0]).split(",") if x.strip()]
+            if uid in user_list:
+                user_list.remove(uid)
+                cur.execute(
+                    "UPDATE signups SET user_ids=? WHERE hour=? AND team=?",
+                    (json.dumps(user_list), self.hour, self.team)
+                )
+        conn.commit()
+        conn.close()
 
-        if user_id in user_list:
-            user_signups.append((row["team"], row["hour"]))
+        member = interaction.guild.get_member(int(uid))
+        name = member.display_name if member else f"Unknown({uid})"
+        await interaction.response.send_message(
+            f"✅ {name} wurde von {self.team} für {self.hour} Uhr entfernt.",
+            ephemeral=True
+        )
 
-    return user_signups
+class HourTeamSelect(discord.ui.Select):
+    def __init__(self, guild, grouped):
+        options = []
+        for (hour, team), users in grouped.items():
+            if users:  # nur Teams/Stunden mit Spielern
+                options.append(discord.SelectOption(label=f"{hour}:00 {team}", value=f"{hour}|{team}"))
+        super().__init__(placeholder="Team und Stunde wählen", options=options)
+        self.grouped = grouped
+        self.guild = guild
 
-class Drop(commands.Cog):
+    async def callback(self, interaction: discord.Interaction):
+        hour_str, team = self.values[0].split("|")
+        hour = int(hour_str)
+        users = self.grouped.get((hour, team), [])
+        if not users:
+            await interaction.response.send_message("Keine Spieler in diesem Team!", ephemeral=True)
+            return
+
+        # --- Temporäre View mit UserSelect ---
+        view = discord.ui.View()
+        view.add_item(UserSelect(self.guild, hour, team, users))
+
+        await interaction.response.send_message(
+            "Wähle den Spieler aus, der entfernt werden soll:",
+            view=view,
+            ephemeral=True
+        )
+
+# --- Cog ---
+class ModDrop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.slash_command(name="d", description="Für einen Scrim absagen")
+    @commands.slash_command(name="ad", description="Entfernt Spieler aus einem Scrim")
+    @commands.has_permissions(administrator=True)
     async def drop(self, ctx: discord.ApplicationContext):
-        user_id = str(ctx.author.id)
-        signups = get_user_signups(user_id)
-
-        if not signups:
-            await ctx.respond("⚠️ Du bist aktuell bei keinem Scrim angemeldet.", ephemeral=True)
+        grouped = fetch_signups()
+        if not grouped:
+            await ctx.respond("Keine Anmeldung gefunden", ephemeral=True)
             return
 
-        # Auswahlmenü für Team + Stunde
-        options = [
-            discord.SelectOption(label=f"{hour}:00 {team}", value=f"{hour}|{team}")
-            for team, hour in signups
-        ]
-
-        select = discord.ui.Select(
-            placeholder="Wähle einen Scrim zum Droppen",
-            options=options,
-            min_values=1,
-            max_values=1
-        )
-
-        async def select_callback(interaction: discord.Interaction):
-            hour_str, team = interaction.data["values"][0].split("|")
-            hour = int(hour_str)
-            # Drop in der DB
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("SELECT user_ids, role FROM signups WHERE hour=? AND team=?", (hour, team))
-            row = cur.fetchone()
-            if row:
-                raw_ids, role = row
-                try:
-                    user_list = json.loads(raw_ids)
-                except json.JSONDecodeError:
-                    user_list = [x.strip() for x in raw_ids.split(",") if x.strip()]
-                if user_id in user_list:
-                    user_list.remove(user_id)
-                    cur.execute(
-                        "UPDATE signups SET user_ids=? WHERE hour=? AND team=? AND role=?",
-                        (json.dumps(user_list), hour, team, role)
-                    )
-            conn.commit()
-            conn.close()
-            await interaction.response.edit_message(content=f"✅ {ctx.author.mention} dropped vom Scrim um {hour}:00 für {team}.", view=None)
-
-        select.callback = select_callback
         view = discord.ui.View()
-        view.add_item(select)
-        await ctx.respond("Bitte Scrim auswählen, um abzusagen:", view=view, ephemeral=True)
+        view.add_item(HourTeamSelect(ctx.guild, grouped))
+        await ctx.respond("Bitte Team und Stunde auswählen:", view=view, ephemeral=True)
 
 def setup(bot):
-    bot.add_cog(Drop(bot))
+    bot.add_cog(ModDrop(bot))

@@ -6,7 +6,7 @@ class DropAll(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.slash_command(name = "da", description = "Drop yourself of every signed up scrim")
+    @commands.slash_command(name = "da", description = "Für alle Scrims absagen")
     async def dropall(
         self,
         ctx: discord.ApplicationContext,
@@ -15,7 +15,7 @@ class DropAll(commands.Cog):
         try:
             db.dropall(user_id)
             await ctx.respond(
-                f"{ctx.author.mention} dropped off all scrims.",
+                f"❌{ctx.author.mention} sagt für alle Scrims ab",
                 ephemeral = True,
             )
         except Exception as e:
